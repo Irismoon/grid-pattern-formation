@@ -2,14 +2,71 @@
 import torch
 import os
 import numpy as np
-
+import binarymaze_utils.maze_utils as maze_utils
+import binarymaze_utils.traj_utils as traj_utils
 
 
 class TrajectoryGenerator(object):
     def __init__(self, options, place_cells):
         self.options = options
         self.place_cells = place_cells
+        self.maze = maze_utils.NewMaze(4)
+        self.node_pos = np.zeros((len(self.maze.ru),2))
+        for j,r in enumerate(self.maze.ru):
+          self.node_pos[j,0] = self.maze.xc[r[-1]]
+          self.node_pos[j,1]=self.maze.yc[r[-1]]
+        #self.node_pos = (self.node_pos-np.array([3,3]))[:,::-1]
+        height_ratio = (np.max(self.node_pos[:,0])-np.min(self.node_pos[:,0]))/self.options.box_height
+        print(height_ratio)
+        
+        self.node_pos[:,0] = self.node_pos[:,0]/height_ratio - self.options.box_height/2
+        width_ratio = (np.max(self.node_pos[:,1])-np.min(self.node_pos[:,1]))/self.options.box_width
+        self.node_pos[:,1] = self.node_pos[:,1]/width_ratio - self.options.box_width/2
+        print(np.max(self.node_pos,axis=0),np.min(self.node_pos,axis=0))
 
+
+
+
+    def maze_randomwalk(self,steps: int,
+                    random_seed: int,
+                    mode='node') -> np.ndarray:
+      """ Generate synthetic data
+      Args:
+        steps: number of steps for random walk
+        mode: select cell or node
+      Returns:
+        List[nodes]
+      """
+      
+      Traj = traj_utils.MakeRandomWalk(self.maze,
+                            n = steps,
+                            rs = random_seed)
+      if mode == 'node':
+        return Traj.no[0][:-1, 0]
+      elif mode == 'cell':
+        return Traj.ce
+      return rw
+
+    def pos2polarangle(self,pos):
+      if pos[0]<0:
+        angle = 180
+      if pos[0]>0: 
+        angle = 0
+      if pos[1]<0:
+        angle = 90
+      if pos[1]>0:
+        angle = 270
+      return angle/180*np.pi
+    
+    def shrink_and_expand(self,x,t_len):
+      n_batch = len(x)
+      for i in range(n_batch):
+        x[i] = x[i][:t_len]
+      y = np.empty((n_batch,t_len,x[0].shape[1]))#batch x sequence x feature
+      for i in range(n_batch):
+        y[i,:,:] = x[i]
+      
+      return y
 
     def avoid_wall(self, position, hd, box_width, box_height):
         '''
@@ -34,68 +91,94 @@ class TrajectoryGenerator(object):
 
     def generate_trajectory(self, box_width, box_height, batch_size):
         '''Generate a random walk in a rectangular box'''
+        
+        #print('hello world!')
         samples = self.options.sequence_length
         dt = 0.02  # time step increment (seconds)
-        sigma = 5.76 * 2  # stdev rotation velocity (rads/sec)
-        b = 0.13 * 2 * np.pi # forward velocity rayleigh dist scale (m/sec)
-        mu = 0  # turn angle bias 
-        self.border_region = 0.03  # meters
 
-        # Initialize variables
-        position = np.zeros([batch_size, samples+2, 2])
-        head_dir = np.zeros([batch_size, samples+2])
-        position[:,0,0] = np.random.uniform(-box_width/2, box_width/2, batch_size)
-        position[:,0,1] = np.random.uniform(-box_height/2, box_height/2, batch_size)
-        head_dir[:,0] = np.random.uniform(0, 2*np.pi, batch_size)
-        velocity = np.zeros([batch_size, samples+2])
         
-        # Generate sequence of random boosts and turns
-        random_turn = np.random.normal(mu, sigma, [batch_size, samples+1])
-        random_vel = np.random.rayleigh(b, [batch_size, samples+1])
-        v = np.abs(np.random.normal(0, b*np.pi/2, batch_size))
+        angular_speed = 30/180*np.pi
+        linear_speed = self.options.box_height/50
 
-        for t in range(samples+1):
-            # Update velocity
-            v = random_vel[:,t]
-            turn_angle = np.zeros(batch_size)
+        batch_linear_velocity = []#batch_size x T x output_neuron
+        batch_position = []
+        batch_head_angular_velocity = []
+        batch_head_direction = []
+        for i_batch in range(batch_size):
+          current_head_direction = np.pi/2
+          traj = self.maze_randomwalk(steps = 50, random_seed = i_batch, mode = 'node')
+          #print(traj,len(traj))
 
-            if not self.options.periodic:
-                # If in border region, turn and slow down
-                is_near_wall, turn_angle = self.avoid_wall(position[:,t], head_dir[:,t], box_width, box_height)
-                v[is_near_wall] *= 0.25
+          head_direction = []
+          head_angular_velocity = []
+          position = []
+          linear_velocity = []
 
-            # Update turn angle
-            turn_angle += dt*random_turn[:,t]
+          for i,node in enumerate(traj[0:-1]):
+            current_node_pos = self.node_pos[node,:]
+            next_node_pos = self.node_pos[traj[i+1],:]
+            diff_pos = next_node_pos - current_node_pos
+            
+            tmp = diff_pos!=0
+            if tmp[0] == tmp[1]:
+              raise ValueError('traj has one node repeated!')
+            next_node_direction = self.pos2polarangle(diff_pos)
+            delta_head_direction = current_head_direction - next_node_direction
+            delta_t_head = np.abs(delta_head_direction / angular_speed).astype(int)
+            #generate short-term head direction series and linear positions
+            head_direction = head_direction + ((np.linspace(current_head_direction,next_node_direction,delta_t_head)[:,None]).tolist())
+            head_angular_velocity = head_angular_velocity + ((np.sign(delta_head_direction)*angular_speed*np.ones((delta_t_head,1))).tolist())
+            position = position + (np.repeat(current_node_pos[:,None],delta_t_head,axis=1).T.tolist())
+            linear_velocity = linear_velocity + (np.zeros((delta_t_head,1)).tolist())
 
-            # Take a step
-            velocity[:,t] = v*dt
-            update = velocity[:,t,None]*np.stack([np.cos(head_dir[:,t]), np.sin(head_dir[:,t])], axis=-1)
-            position[:,t+1] = position[:,t] + update
+            current_head_direction = next_node_direction
 
-            # Rotate head direction
-            head_dir[:,t+1] = head_dir[:,t] + turn_angle
+            #generate running through the corridor
+            delta_t_linear = np.abs(np.sum(diff_pos)/linear_speed).astype(int)
+            head_direction = head_direction + ((next_node_direction*np.ones((delta_t_linear,1))).tolist())
+            head_angular_velocity = head_angular_velocity + (np.zeros((delta_t_linear,1)).tolist())
+            position = position+np.linspace(current_node_pos,next_node_pos,delta_t_linear).tolist()
+            linear_velocity = linear_velocity+(linear_speed*np.ones((delta_t_linear,1))).tolist()
 
-        # Periodic boundaries
-        if self.options.periodic:
-            position[:,:,0] = np.mod(position[:,:,0] + box_width/2, box_width) - box_width/2
-            position[:,:,1] = np.mod(position[:,:,1] + box_height/2, box_height) - box_height/2
+          linear_velocity = np.array(linear_velocity)
+          position = np.array(position)
+          head_angular_velocity = np.array(head_angular_velocity)
+          head_direction = np.array(head_direction)
 
-        head_dir = np.mod(head_dir + np.pi, 2*np.pi) - np.pi # Periodic variable
+          batch_linear_velocity.append(linear_velocity)
+          batch_position.append(position)
+          batch_head_angular_velocity.append(head_angular_velocity)
+          batch_head_direction.append(head_direction)
+
+        t_len = self.options.sequence_length
+  
+
+        batch_linear_velocity = self.shrink_and_expand(batch_linear_velocity,t_len)
+        batch_position = self.shrink_and_expand(batch_position,t_len)
+        batch_head_angular_velocity = self.shrink_and_expand(batch_head_angular_velocity,t_len)
+        batch_head_direction = self.shrink_and_expand(batch_head_direction,t_len)
+        
+        #linear_noise = np.random.normal(scale=linear_speed*0.01,size=batch_linear_velocity.shape)
+        # angular_noise = np.random.normal(scale=angular_speed*0.01,size=batch_head_angular_velocity.shape)
+        # noisy_input = np.concatenate((batch_linear_velocity+linear_noise,(batch_head_angular_velocity+angular_noise)),axis=2)
+        # output = np.concatenate((batch_position,batch_head_direction),axis=2)
+
+        #batch x sequence x feature
 
         traj = {}
         # Input variables
-        traj['init_hd'] = head_dir[:,0,None]
-        traj['init_x'] = position[:,1,0,None]
-        traj['init_y'] = position[:,1,1,None]
+        traj['init_hd'] = batch_head_direction[:,0,None]
+        traj['init_x'] = batch_position[:,1,0,None]
+        traj['init_y'] = batch_position[:,1,1,None]
 
-        traj['ego_v'] = velocity[:,1:-1]
-        ang_v = np.diff(head_dir, axis=-1)
+        traj['ego_v'] = np.squeeze(batch_linear_velocity[:,1:-1])
+        ang_v = batch_head_angular_velocity
         traj['phi_x'], traj['phi_y'] = np.cos(ang_v)[:,:-1], np.sin(ang_v)[:,:-1]
 
         # Target variables
-        traj['target_hd'] = head_dir[:,1:-1]
-        traj['target_x'] = position[:,2:,0]
-        traj['target_y'] = position[:,2:,1]
+        traj['target_hd'] = np.squeeze(batch_head_direction[:,1:-1])
+        traj['target_x'] = batch_position[:,2:,0]
+        traj['target_y'] = batch_position[:,2:,1]
 
         return traj
 
@@ -142,6 +225,7 @@ class TrajectoryGenerator(object):
             box_height = self.options.box_height
             
         traj = self.generate_trajectory(box_width, box_height, batch_size)
+        
         
         v = np.stack([traj['ego_v']*np.cos(traj['target_hd']), 
               traj['ego_v']*np.sin(traj['target_hd'])],axis=-1)
