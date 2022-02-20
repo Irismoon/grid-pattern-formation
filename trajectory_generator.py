@@ -106,7 +106,7 @@ class TrajectoryGenerator(object):
         batch_head_direction = []
         for i_batch in range(batch_size):
           current_head_direction = np.pi/2
-          traj = self.maze_randomwalk(steps = 50, random_seed = i_batch, mode = 'node')
+          traj = self.maze_randomwalk(steps = 70, random_seed = i_batch, mode = 'node')
           #print(traj,len(traj))
 
           head_direction = []
@@ -123,13 +123,6 @@ class TrajectoryGenerator(object):
             if tmp[0] == tmp[1]:
               raise ValueError('traj has one node repeated!')
             next_node_direction = self.pos2polarangle(diff_pos)
-            delta_head_direction = current_head_direction - next_node_direction
-            delta_t_head = np.abs(delta_head_direction / angular_speed).astype(int)
-            #generate short-term head direction series and linear positions
-            head_direction = head_direction + ((np.linspace(current_head_direction,next_node_direction,delta_t_head)[:,None]).tolist())
-            head_angular_velocity = head_angular_velocity + ((np.sign(delta_head_direction)*angular_speed*np.ones((delta_t_head,1))).tolist())
-            position = position + (np.repeat(current_node_pos[:,None],delta_t_head,axis=1).T.tolist())
-            linear_velocity = linear_velocity + (np.zeros((delta_t_head,1)).tolist())
 
             current_head_direction = next_node_direction
 
@@ -137,7 +130,7 @@ class TrajectoryGenerator(object):
             delta_t_linear = np.abs(np.sum(diff_pos)/linear_speed).astype(int)
             head_direction = head_direction + ((next_node_direction*np.ones((delta_t_linear,1))).tolist())
             head_angular_velocity = head_angular_velocity + (np.zeros((delta_t_linear,1)).tolist())
-            position = position+np.linspace(current_node_pos,next_node_pos,delta_t_linear).tolist()
+            position = position+np.arange().tolist()
             linear_velocity = linear_velocity+(linear_speed*np.ones((delta_t_linear,1))).tolist()
 
           linear_velocity = np.array(linear_velocity)
@@ -153,10 +146,10 @@ class TrajectoryGenerator(object):
         t_len = self.options.sequence_length
   
 
-        batch_linear_velocity = self.shrink_and_expand(batch_linear_velocity,t_len)
-        batch_position = self.shrink_and_expand(batch_position,t_len)
-        batch_head_angular_velocity = self.shrink_and_expand(batch_head_angular_velocity,t_len)
-        batch_head_direction = self.shrink_and_expand(batch_head_direction,t_len)
+        batch_linear_velocity = self.shrink_and_expand(batch_linear_velocity,t_len+2)
+        batch_position = self.shrink_and_expand(batch_position,t_len+2)
+        batch_head_angular_velocity = self.shrink_and_expand(batch_head_angular_velocity,t_len+2)
+        batch_head_direction = self.shrink_and_expand(batch_head_direction,t_len+2)
         
         #linear_noise = np.random.normal(scale=linear_speed*0.01,size=batch_linear_velocity.shape)
         # angular_noise = np.random.normal(scale=angular_speed*0.01,size=batch_head_angular_velocity.shape)
@@ -164,7 +157,7 @@ class TrajectoryGenerator(object):
         # output = np.concatenate((batch_position,batch_head_direction),axis=2)
 
         #batch x sequence x feature
-
+        x = np.concatenate((batch_linear_velocity[0,:100],batch_position[0,:100,:],batch_head_direction[0,:100]),axis=1)
         traj = {}
         # Input variables
         traj['init_hd'] = batch_head_direction[:,0,None]
@@ -180,7 +173,7 @@ class TrajectoryGenerator(object):
         traj['target_x'] = batch_position[:,2:,0]
         traj['target_y'] = batch_position[:,2:,1]
 
-        return traj
+        return traj,x
 
     
     def get_generator(self, batch_size=None, box_width=None, box_height=None):

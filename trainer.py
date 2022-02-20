@@ -69,23 +69,26 @@ class Trainer(object):
         # tbar = tqdm(range(n_steps), leave=False)
         for t in range(n_steps):
             inputs, pc_outputs, pos = next(gen)
+            
             loss, err = self.train_step(inputs, pc_outputs, pos)
             self.loss.append(loss)
             self.err.append(err)
+            if t%10000==0:
+              print('step {}. Loss: {}. Err: {}cm'.format(t,np.round(loss,2),np.round(100*err,2)))
 
             #Log error rate to progress bar
             # tbar.set_description('Error = ' + str(np.int(100*err)) + 'cm')
 
-            if save and t%10000==0:
-                print('Step {}/{}. Loss: {}. Err: {}cm'.format(
-                    t,n_steps,np.round(loss,2),np.round(100*err,2)))
-                # Save checkpoint
-                ckpt_path = os.path.join(self.ckpt_dir, 'iter_{}.pth'.format(t))
-                torch.save(self.model.state_dict(), ckpt_path)
-                torch.save(self.model.state_dict(), os.path.join(self.ckpt_dir,
-                                            'most_recent_model.pth'))
+            # if save and t%10000==0:
+            #     print('Step {}/{}. Loss: {}. Err: {}cm'.format(
+            #         t,n_steps,np.round(loss,2),np.round(100*err,2)))
+            #     # Save checkpoint
+            #     ckpt_path = os.path.join(self.ckpt_dir, 'iter_{}.pth'.format(t))
+            #     torch.save(self.model.state_dict(), ckpt_path)
+            #     torch.save(self.model.state_dict(), os.path.join(self.ckpt_dir,
+            #                                 'most_recent_model.pth'))
 
-                # Save a picture of rate maps
-                save_ratemaps(self.model, self.trajectory_generator,
-                 self.options, step=t)
+            #     # Save a picture of rate maps
+            #     save_ratemaps(self.model, self.trajectory_generator,
+            #      self.options, step=t)
             

@@ -32,6 +32,8 @@ class RNN(torch.nn.Module):
         '''
         v, p0 = inputs
         init_state = self.encoder(p0)[None]
+        print('v shape {}, p0 shape {}'.format(v.shape,p0.shape))
+        print('init stat nan # {}, v nan # {}, p0 nan # {}'.format(init_state.isnan().sum(),v.cpu().isnan().sum(),p0.isnan().sum()))
         g,_ = self.RNN(v, init_state)
         return g
     
@@ -67,6 +69,7 @@ class RNN(torch.nn.Module):
         y = pc_outputs
         preds = self.predict(inputs)
         yhat = self.softmax(self.predict(inputs))
+
         loss = -(y*torch.log(yhat)).sum(-1).mean()
 
         # Weight regularization 
@@ -76,4 +79,4 @@ class RNN(torch.nn.Module):
         pred_pos = self.place_cells.get_nearest_cell_pos(preds)
         err = torch.sqrt(((pos - pred_pos)**2).sum(-1)).mean()
 
-        return loss, err
+        return loss, err, preds
