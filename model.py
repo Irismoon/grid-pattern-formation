@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import torch
-
+import numpy as np
 class RNN(torch.nn.Module):
     def __init__(self, options, place_cells):
         super(RNN, self).__init__()
@@ -32,9 +32,10 @@ class RNN(torch.nn.Module):
         '''
         v, p0 = inputs
         init_state = self.encoder(p0)[None]
-        print('v shape {}, p0 shape {}'.format(v.shape,p0.shape))
-        print('init stat nan # {}, v nan # {}, p0 nan # {}'.format(init_state.isnan().sum(),v.cpu().isnan().sum(),p0.isnan().sum()))
+        #print('v shape {}, p0 shape {}'.format(v.shape,p0.shape))
+        #print('init stat nan # {}, v nan # {}, p0 nan # {}'.format(init_state.isnan().sum(),v.cpu().isnan().sum(),p0.isnan().sum()))
         g,_ = self.RNN(v, init_state)
+
         return g
     
 
@@ -68,9 +69,16 @@ class RNN(torch.nn.Module):
         '''
         y = pc_outputs
         preds = self.predict(inputs)
+        #print(preds)
         yhat = self.softmax(self.predict(inputs))
 
-        loss = -(y*torch.log(yhat)).sum(-1).mean()
+        if torch.any(torch.isnan(torch.log(yhat))):
+          print('ignore one epoch due to exploding hidden state')
+          loss = 0#if abnormal batch appears, ignore this batch, don't do weight update accordingly
+        else:
+          loss = -(y*torch.log(yhat)).sum(-1).mean()
+        if np.isnan(loss.item()):
+          import pdb; pdb.set_trace()
 
         # Weight regularization 
         loss += self.weight_decay * (self.RNN.weight_hh_l0**2).sum()
@@ -79,4 +87,4 @@ class RNN(torch.nn.Module):
         pred_pos = self.place_cells.get_nearest_cell_pos(preds)
         err = torch.sqrt(((pos - pred_pos)**2).sum(-1)).mean()
 
-        return loss, err, preds
+        return loss, err

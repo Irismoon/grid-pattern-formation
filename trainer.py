@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 import torch
 import numpy as np
+from matplotlib import pyplot as plt
+from subprocess import call
+import wandb
+call(["wandb","login"])
 
 from visualize import save_ratemaps
 import os
@@ -62,6 +66,8 @@ class Trainer(object):
             n_steps: Number of training steps
             save: If true, save a checkpoint after each epoch.
         '''
+        wandb.watch(self.model,log='all',log_freq=100)
+        print('watching training...')
 
         # Construct generator
         gen = self.trajectory_generator.get_generator()
@@ -73,8 +79,15 @@ class Trainer(object):
             loss, err = self.train_step(inputs, pc_outputs, pos)
             self.loss.append(loss)
             self.err.append(err)
-            if t%10000==0:
+            if t%(0.01*n_steps)==0:            
               print('step {}. Loss: {}. Err: {}cm'.format(t,np.round(loss,2),np.round(100*err,2)))
+              wandb.log({"epoch":t,'loss':loss,'error':err},step=t)
+            #if t%(0.2*n_steps)==0:
+              # plt.figure()
+              # plt.hist(torch.flatten(self.model.encoder.weight).cpu().detach().numpy(),bins=20)
+              # plt.hist(torch.flatten(self.model.RNN.weight_hh_l0).cpu().detach().numpy(),bins=20)
+              # plt.hist(torch.flatten(self.model.RNN.weight_ih_l0).cpu().detach().numpy(),bins=20)
+              # plt.show()
 
             #Log error rate to progress bar
             # tbar.set_description('Error = ' + str(np.int(100*err)) + 'cm')

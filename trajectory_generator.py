@@ -53,9 +53,9 @@ class TrajectoryGenerator(object):
       if pos[0]>0: 
         angle = 0
       if pos[1]<0:
-        angle = 90
-      if pos[1]>0:
         angle = 270
+      if pos[1]>0:
+        angle = 90
       return angle/180*np.pi
     
     def shrink_and_expand(self,x,t_len):
@@ -91,8 +91,81 @@ class TrajectoryGenerator(object):
 
     def generate_trajectory(self, box_width, box_height, batch_size):
         '''Generate a random walk in a rectangular box'''
+        if (self.options.traj_type == 'maze_env'):
+          traj = self.maze_env_walk(box_width,box_height,batch_size)
+        if (self.options.traj_type == 'open_env'):
+          traj = self.open_env_walk(box_width,box_height,batch_size)
+        return traj
+
+    def open_env_walk(self, box_width, box_height, batch_size):
+        '''Generate a random walk in a rectangular box'''
+        samples = self.options.sequence_length
+        dt = 0.02  # time step increment (seconds)
+        sigma = 5.76 * 2  # stdev rotation velocity (rads/sec)
+        b = 0.13 * 2 * np.pi # forward velocity rayleigh dist scale (m/sec)
+        mu = 0  # turn angle bias 
+        self.border_region = 0.03  # meters
+
+        # Initialize variables
+        position = np.zeros([batch_size, samples+2, 2])
+        head_dir = np.zeros([batch_size, samples+2])
+        position[:,0,0] = np.random.uniform(-box_width/2, box_width/2, batch_size)
+        position[:,0,1] = np.random.uniform(-box_height/2, box_height/2, batch_size)
+        head_dir[:,0] = np.random.uniform(0, 2*np.pi, batch_size)
+        velocity = np.zeros([batch_size, samples+2])
         
-        #print('hello world!')
+        # Generate sequence of random boosts and turns
+        random_turn = np.random.normal(mu, sigma, [batch_size, samples+1])
+        random_vel = np.random.rayleigh(b, [batch_size, samples+1])
+        v = np.abs(np.random.normal(0, b*np.pi/2, batch_size))
+
+        for t in range(samples+1):
+            # Update velocity
+            v = random_vel[:,t]
+            turn_angle = np.zeros(batch_size)
+
+            if not self.options.periodic:
+                # If in border region, turn and slow down
+                is_near_wall, turn_angle = self.avoid_wall(position[:,t], head_dir[:,t], box_width, box_height)
+                v[is_near_wall] *= 0.25
+
+            # Update turn angle
+            turn_angle += dt*random_turn[:,t]
+
+            # Take a step
+            velocity[:,t] = v*dt
+            update = velocity[:,t,None]*np.stack([np.cos(head_dir[:,t]), np.sin(head_dir[:,t])], axis=-1)
+            position[:,t+1] = position[:,t] + update
+
+            # Rotate head direction
+            head_dir[:,t+1] = head_dir[:,t] + turn_angle
+
+        # Periodic boundaries
+        if self.options.periodic:
+            position[:,:,0] = np.mod(position[:,:,0] + box_width/2, box_width) - box_width/2
+            position[:,:,1] = np.mod(position[:,:,1] + box_height/2, box_height) - box_height/2
+
+        head_dir = np.mod(head_dir + np.pi, 2*np.pi) - np.pi # Periodic variable
+
+        traj = {}
+        # Input variables
+        traj['init_hd'] = head_dir[:,0,None]
+        traj['init_x'] = position[:,1,0,None]
+        traj['init_y'] = position[:,1,1,None]
+
+        traj['ego_v'] = velocity[:,1:-1]
+        ang_v = np.diff(head_dir, axis=-1)
+        traj['phi_x'], traj['phi_y'] = np.cos(ang_v)[:,:-1], np.sin(ang_v)[:,:-1]
+
+        # Target variables
+        traj['target_hd'] = head_dir[:,1:-1]
+        traj['target_x'] = position[:,2:,0]
+        traj['target_y'] = position[:,2:,1]
+
+        return traj  
+
+    def maze_env_walk(self,box_width,box_height,batch_size):
+      #print('hello world!')
         samples = self.options.sequence_length
         dt = 0.02  # time step increment (seconds)
 
@@ -106,7 +179,7 @@ class TrajectoryGenerator(object):
         batch_head_direction = []
         for i_batch in range(batch_size):
           current_head_direction = np.pi/2
-          traj = self.maze_randomwalk(steps = 70, random_seed = i_batch, mode = 'node')
+          traj = self.maze_randomwalk(steps = 70, random_seed = np.random.randint(0,100000), mode = 'node')
           #print(traj,len(traj))
 
           head_direction = []
@@ -127,11 +200,23 @@ class TrajectoryGenerator(object):
             current_head_direction = next_node_direction
 
             #generate running through the corridor
-            delta_t_linear = np.abs(np.sum(diff_pos)/linear_speed).astype(int)
-            head_direction = head_direction + ((next_node_direction*np.ones((delta_t_linear,1))).tolist())
-            head_angular_velocity = head_angular_velocity + (np.zeros((delta_t_linear,1)).tolist())
-            position = position+np.arange().tolist()
-            linear_velocity = linear_velocity+(linear_speed*np.ones((delta_t_linear,1))).tolist()
+            delta_t_linear = np.abs(np.sum(diff_pos)/linear_speed)
+            int_delta_t = int(delta_t_linear)
+            head_direction = head_direction + ((next_node_direction*np.ones((int_delta_t+2,1))).tolist())
+            head_angular_velocity = head_angular_velocity + (np.zeros((int_delta_t+2,1)).tolist())
+            
+            tmp = np.zeros((int_delta_t+2))
+            tmp[:int_delta_t+1] = np.ones(int_delta_t+1)*linear_speed
+            tmp[0] = 0
+            tmp[-1] = (delta_t_linear-int_delta_t)*linear_speed
+            linear_velocity = linear_velocity+np.reshape(tmp,(-1,1)).tolist()
+
+            tmp = np.sign(diff_pos)*np.repeat(tmp[:,None],1,axis=1)
+            tmp_pos = np.reshape(current_node_pos,(1,2))+np.cumsum(tmp,axis=0)
+            
+            position = position+tmp_pos.tolist()
+            
+            
 
           linear_velocity = np.array(linear_velocity)
           position = np.array(position)
@@ -157,25 +242,22 @@ class TrajectoryGenerator(object):
         # output = np.concatenate((batch_position,batch_head_direction),axis=2)
 
         #batch x sequence x feature
-        x = np.concatenate((batch_linear_velocity[0,:100],batch_position[0,:100,:],batch_head_direction[0,:100]),axis=1)
         traj = {}
         # Input variables
         traj['init_hd'] = batch_head_direction[:,0,None]
         traj['init_x'] = batch_position[:,1,0,None]
         traj['init_y'] = batch_position[:,1,1,None]
 
-        traj['ego_v'] = np.squeeze(batch_linear_velocity[:,1:-1])
+        traj['ego_v'] = np.squeeze(batch_linear_velocity[:,2:])
         ang_v = batch_head_angular_velocity
         traj['phi_x'], traj['phi_y'] = np.cos(ang_v)[:,:-1], np.sin(ang_v)[:,:-1]
 
         # Target variables
-        traj['target_hd'] = np.squeeze(batch_head_direction[:,1:-1])
+        traj['target_hd'] = np.squeeze(batch_head_direction[:,2:])
         traj['target_x'] = batch_position[:,2:,0]
         traj['target_y'] = batch_position[:,2:,1]
 
-        return traj,x
-
-    
+        return traj
     def get_generator(self, batch_size=None, box_width=None, box_height=None):
         '''
         Returns a generator that yields batches of trajectories
