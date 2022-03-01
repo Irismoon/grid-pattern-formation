@@ -1175,7 +1175,8 @@ def MakeRandomWalk(ma,n=1000,rs=1,bi=2/3):
     tra[2**ma.le-1:]=[0,0,1] # can only step `o` from the endnodes
     # make the trajectory in terms of nodes
     ce=[]
-    s1=0 # go to node #0
+    #s1 = 0
+    s1=np.random.choice(len(ma.ru)) # go to node #0
     ce+=ma.ru[s1] # accumulate cells to get to node #0
     tot=0
     while len(ce)<n:

@@ -77,11 +77,11 @@ class RNN(torch.nn.Module):
           loss = 0#if abnormal batch appears, ignore this batch, don't do weight update accordingly
         else:
           loss = -(y*torch.log(yhat)).sum(-1).mean()
-        if np.isnan(loss.item()):
-          import pdb; pdb.set_trace()
+          #print(loss.item())
 
         # Weight regularization 
         loss += self.weight_decay * (self.RNN.weight_hh_l0**2).sum()
+        #print(loss.item())
 
         # Compute decoding error
         pred_pos = self.place_cells.get_nearest_cell_pos(preds)

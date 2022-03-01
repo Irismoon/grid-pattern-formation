@@ -51,9 +51,13 @@ class Trainer(object):
         self.model.zero_grad()
 
         loss, err = self.model.compute_loss(inputs, pc_outputs, pos)
-        
-        loss.backward()
-        self.optimizer.step()
+        #import pdb; pdb.set_trace()
+        if np.isnan(loss.item()):
+          print('Nan detected, skip this trial')
+        else:
+          #import pdb;pdb.set_trace()
+          loss.backward()
+          self.optimizer.step()
         
         return loss.item(), err.item()
 
@@ -79,9 +83,9 @@ class Trainer(object):
             loss, err = self.train_step(inputs, pc_outputs, pos)
             self.loss.append(loss)
             self.err.append(err)
-            if t%(0.01*n_steps)==0:            
-              print('step {}. Loss: {}. Err: {}cm'.format(t,np.round(loss,2),np.round(100*err,2)))
-              wandb.log({"epoch":t,'loss':loss,'error':err},step=t)
+            # if t%(0.01*n_steps)==0:            
+            #   print('step {}. Loss: {}. Err: {}cm'.format(t,np.round(loss,2),np.round(100*err,2)))
+            #   wandb.log({"epoch":t,'loss':loss,'error':err},step=t)
             #if t%(0.2*n_steps)==0:
               # plt.figure()
               # plt.hist(torch.flatten(self.model.encoder.weight).cpu().detach().numpy(),bins=20)
@@ -92,16 +96,16 @@ class Trainer(object):
             #Log error rate to progress bar
             # tbar.set_description('Error = ' + str(np.int(100*err)) + 'cm')
 
-            # if save and t%10000==0:
-            #     print('Step {}/{}. Loss: {}. Err: {}cm'.format(
-            #         t,n_steps,np.round(loss,2),np.round(100*err,2)))
-            #     # Save checkpoint
-            #     ckpt_path = os.path.join(self.ckpt_dir, 'iter_{}.pth'.format(t))
-            #     torch.save(self.model.state_dict(), ckpt_path)
-            #     torch.save(self.model.state_dict(), os.path.join(self.ckpt_dir,
-            #                                 'most_recent_model.pth'))
+            if save and t%1000==0:
+                print('Step {}/{}. Loss: {}. Err: {}cm'.format(
+                    t,n_steps,np.round(loss,2),np.round(100*err,2)))
+                # Save checkpoint
+                ckpt_path = os.path.join(self.ckpt_dir, 'iter_{}.pth'.format(t))
+                torch.save(self.model.state_dict(), ckpt_path)
+                torch.save(self.model.state_dict(), os.path.join(self.ckpt_dir,
+                                            'most_recent_model.pth'))
 
-            #     # Save a picture of rate maps
-            #     save_ratemaps(self.model, self.trajectory_generator,
-            #      self.options, step=t)
+                # Save a picture of rate maps
+                save_ratemaps(self.model, self.trajectory_generator,
+                 self.options, step=t)
             

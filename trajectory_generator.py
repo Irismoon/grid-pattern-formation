@@ -9,21 +9,29 @@ import binarymaze_utils.traj_utils as traj_utils
 class TrajectoryGenerator(object):
     def __init__(self, options, place_cells):
         self.options = options
+        self.maze_size = 4
         self.place_cells = place_cells
-        self.maze = maze_utils.NewMaze(4)
+        self.maze = maze_utils.NewMaze(self.maze_size)
         self.node_pos = np.zeros((len(self.maze.ru),2))
         for j,r in enumerate(self.maze.ru):
           self.node_pos[j,0] = self.maze.xc[r[-1]]
           self.node_pos[j,1]=self.maze.yc[r[-1]]
         #self.node_pos = (self.node_pos-np.array([3,3]))[:,::-1]
-        height_ratio = (np.max(self.node_pos[:,0])-np.min(self.node_pos[:,0]))/self.options.box_height
-        print(height_ratio)
-        
-        self.node_pos[:,0] = self.node_pos[:,0]/height_ratio - self.options.box_height/2
-        width_ratio = (np.max(self.node_pos[:,1])-np.min(self.node_pos[:,1]))/self.options.box_width
-        self.node_pos[:,1] = self.node_pos[:,1]/width_ratio - self.options.box_width/2
-        print(np.max(self.node_pos,axis=0),np.min(self.node_pos,axis=0))
+        self.node_pos -= np.mean(self.node_pos,axis=0)
+        height_ratio = (np.max(self.node_pos[:,0])-np.min(self.node_pos[:,0])+1)/self.options.box_height        
+        self.node_pos[:,0] = self.node_pos[:,0]/height_ratio# - self.options.box_height/2
+        width_ratio = (np.max(self.node_pos[:,1])-np.min(self.node_pos[:,1])+1)/self.options.box_width
+        self.node_pos[:,1] = self.node_pos[:,1]/width_ratio# - self.options.box_width/2
+        self.corridor_width = 1/width_ratio
 
+        self.leaf_node = np.arange(self.node_pos.shape[0]-np.power(2,self.maze_size)+1,self.node_pos.shape[0]+1,1)-1
+        const = self.corridor_width/2
+        self.node_shift = dict(
+          {15:[-const,0],16:[const,0],17:[-const,0],18:[const,0],
+            19:[-const,0],20:[const,0],21:[-const,0],22:[const,0],
+            23:[-const,0],24:[const,0],25:[-const,0],26:[const,0],
+            27:[-const,0],28:[const,0],29:[-const,0],30:[const,0]
+        })
 
 
 
@@ -58,6 +66,7 @@ class TrajectoryGenerator(object):
         angle = 90
       return angle/180*np.pi
     
+
     def shrink_and_expand(self,x,t_len):
       n_batch = len(x)
       for i in range(n_batch):
@@ -93,6 +102,8 @@ class TrajectoryGenerator(object):
         '''Generate a random walk in a rectangular box'''
         if (self.options.traj_type == 'maze_env'):
           traj = self.maze_env_walk(box_width,box_height,batch_size)
+        if (self.options.traj_type == 'maze_open_env'):
+          traj = self.maze_env_open_walk(box_width,box_height,batch_size)
         if (self.options.traj_type == 'open_env'):
           traj = self.open_env_walk(box_width,box_height,batch_size)
         return traj
@@ -163,7 +174,108 @@ class TrajectoryGenerator(object):
         traj['target_y'] = position[:,2:,1]
 
         return traj  
+    def maze_env_open_walk(self,box_width,box_height,batch_size):
+        linear_speed = 0.04
+        #generate a sequence of nodes
+        #set next node
+        #if around next node, change next node, and turn head direction
+        #detect if near wall, if yes, change head direction
+        #generate random head turn, update head direction and position
 
+        #example one batch
+        n_sample = self.options.sequence_length
+        
+        batch_linear_velocity = []
+        batch_head_direction = []
+        batch_head_angular_velocity = []
+        batch_position = []
+        for i_batch in range(batch_size):
+          position = []
+          head_direction = []
+          head_angular_velocity = []
+          linear_velocity = []
+          traj = self.maze_randomwalk(steps = 70, random_seed = np.random.randint(0,100000), mode = 'node')
+          for i,node in enumerate(traj[0:-1]):
+              if node in self.leaf_node:
+                current_node_pos = self.node_pos[node,:] + self.node_shift[node]
+              else:
+                current_node_pos = self.node_pos[node,:]
+              
+              if traj[i+1] in self.leaf_node:
+                next_node_pos = self.node_pos[traj[i+1],:] + self.node_shift[traj[i+1]]
+              else:
+                next_node_pos = self.node_pos[traj[i+1],:]
+
+              diff_pos = next_node_pos - current_node_pos
+              
+              tmp = diff_pos!=0
+              if tmp[0] == tmp[1]:
+                raise ValueError('traj has one node repeated!')
+              next_node_direction = self.pos2polarangle(diff_pos)
+
+              current_head_direction = next_node_direction
+
+              #generate running through the corridor
+              delta_t_linear = np.abs(np.sum(diff_pos)/linear_speed)
+              int_delta_t = int(delta_t_linear)
+              
+              tmp = np.zeros((int_delta_t+2))
+              tmp[:int_delta_t+1] = np.ones(int_delta_t+1)*linear_speed
+              tmp[0] = 0
+              tmp[-1] = (delta_t_linear-int_delta_t)*linear_speed
+              
+
+              tmp = np.sign(diff_pos)*np.repeat(tmp[:,None],1,axis=1)
+              tmp_pos = np.reshape(current_node_pos,(1,2))+np.cumsum(tmp,axis=0)#time x 2(x,y)
+
+              idx = np.nonzero(np.sign(diff_pos)==0)[0][0]
+
+              randn_drift = np.random.uniform(-self.corridor_width/2, self.corridor_width/2,size=tmp_pos.shape[0])
+              tmp_pos[:,idx] = tmp_pos[:,idx] + randn_drift
+              position = position+tmp_pos.tolist()
+
+          position = np.array(position)
+          tmp_vel = np.diff(position,n=1,axis=0)
+          head_direction = np.zeros((position.shape[0],1))
+          head_direction[1:,0] = np.arctan2(tmp_vel[:,1],tmp_vel[:,0])
+          
+          head_angular_velocity = np.zeros((head_direction.shape[0],1))
+          head_angular_velocity[1:] = np.diff(head_direction,n=1,axis=0)
+
+          linear_velocity = np.zeros((position.shape[0],1))
+          linear_velocity[1:,0] = np.linalg.norm(tmp_vel,axis=1)
+
+          #print(head_direction.shape,head_angular_velocity.shape,linear_velocity.shape,position.shape)
+
+          batch_linear_velocity.append(linear_velocity)
+          batch_position.append(position)
+          batch_head_angular_velocity.append(head_angular_velocity)
+          batch_head_direction.append(head_direction)
+
+        t_len = self.options.sequence_length
+  
+
+        batch_linear_velocity = self.shrink_and_expand(batch_linear_velocity,t_len+2)
+        batch_position = self.shrink_and_expand(batch_position,t_len+2)
+        batch_head_angular_velocity = self.shrink_and_expand(batch_head_angular_velocity,t_len+2)
+        batch_head_direction = self.shrink_and_expand(batch_head_direction,t_len+2)
+
+        traj = {}
+        # Input variables
+        traj['init_hd'] = batch_head_direction[:,0,None]
+        traj['init_x'] = batch_position[:,1,0,None]
+        traj['init_y'] = batch_position[:,1,1,None]
+
+        traj['ego_v'] = np.squeeze(batch_linear_velocity[:,2:])
+        ang_v = batch_head_angular_velocity
+        traj['phi_x'], traj['phi_y'] = np.cos(ang_v)[:,:-1], np.sin(ang_v)[:,:-1]
+
+        # Target variables
+        traj['target_hd'] = np.squeeze(batch_head_direction[:,2:])
+        traj['target_x'] = batch_position[:,2:,0]
+        traj['target_y'] = batch_position[:,2:,1]
+        return traj
+     
     def maze_env_walk(self,box_width,box_height,batch_size):
       #print('hello world!')
         samples = self.options.sequence_length
