@@ -50,19 +50,22 @@ def convert_to_colormap(im, cmap):
     return im
 
 
-def rgb(im, cmap='jet', smooth=True):
+def rgb(im, wall_pos,res,cmap='jet', smooth=True):
     cmap = plt.cm.get_cmap(cmap)
     np.seterr(invalid='ignore')  # ignore divide by zero err
     im = (im - np.min(im)) / (np.max(im) - np.min(im))
     if smooth:
         im = cv2.GaussianBlur(im, (3,3), sigmaX=1, sigmaY=0)
     im = cmap(im)
+    n_wall = len(wall_pos)
+    idx = (wall_pos[:,0]>=np.zeros(n_wall)) & (wall_pos[:,0]<res*np.ones(n_wall)) & (wall_pos[:,1]>=np.zeros(n_wall)) & (wall_pos[:,1]<res*np.ones(n_wall))
+    im[wall_pos[idx,0],wall_pos[idx,1],:] = 1
     im = np.uint8(im * 255)
     return im
 
 
-def plot_ratemaps(activations, n_plots, cmap='jet', smooth=True, width=16):
-    images = [rgb(im, cmap, smooth) for im in activations[:n_plots]]
+def plot_ratemaps(activations, wall_pos, res, n_plots, cmap='jet', smooth=True, width=16):
+    images = [rgb(im, wall_pos,res, cmap, smooth) for im in activations[:n_plots]]
     rm_fig = concat_images_in_rows(images, n_plots//width, activations.shape[-1])
     return rm_fig
 

@@ -17,11 +17,14 @@ class TrajectoryGenerator(object):
           self.node_pos[j,0] = self.maze.xc[r[-1]]
           self.node_pos[j,1]=self.maze.yc[r[-1]]
         #self.node_pos = (self.node_pos-np.array([3,3]))[:,::-1]
+        self.wall_pos = self.maze.wa - np.mean(self.node_pos,axis=0)
         self.node_pos -= np.mean(self.node_pos,axis=0)
         height_ratio = (np.max(self.node_pos[:,0])-np.min(self.node_pos[:,0])+1)/self.options.box_height        
         self.node_pos[:,0] = self.node_pos[:,0]/height_ratio# - self.options.box_height/2
         width_ratio = (np.max(self.node_pos[:,1])-np.min(self.node_pos[:,1])+1)/self.options.box_width
         self.node_pos[:,1] = self.node_pos[:,1]/width_ratio# - self.options.box_width/2
+        self.wall_pos[:,0] = self.wall_pos[:,0]/height_ratio
+        self.wall_pos[:,1] = self.wall_pos[:,1]/width_ratio
         self.corridor_width = 1/width_ratio
 
         self.leaf_node = np.arange(self.node_pos.shape[0]-np.power(2,self.maze_size)+1,self.node_pos.shape[0]+1,1)-1
@@ -33,7 +36,24 @@ class TrajectoryGenerator(object):
             27:[-const,0],28:[const,0],29:[-const,0],30:[const,0]
         })
 
+        #all wall position
+        tmp_wall_pos = []
+        for i_wall in range(len(self.wall_pos)-1):
+          x = np.arange(np.min(self.wall_pos[i_wall:i_wall+2,0]),np.max(self.wall_pos[i_wall:i_wall+2,0]),self.options.box_height/100)[:,None]
+          y = np.arange(np.min(self.wall_pos[i_wall:i_wall+2,1]),np.max(self.wall_pos[i_wall:i_wall+2,1]),self.options.box_height/100)[:,None]
+          if len(x)==0:
+            x = np.repeat(self.wall_pos[i_wall,0],len(y),axis=0)[:,None]
+          if len(y)==0:
+            y = np.repeat(self.wall_pos[i_wall,1],len(x),axis=0)[:,None]
+          tmp_wall_pos.append(np.concatenate((x,y),axis=1))
+        tmp_wall_pos = np.concatenate(tmp_wall_pos,axis=0)
+        self.ori_wall_pos = np.unique(tmp_wall_pos,axis=0)
 
+    def get_wall_pos(self,res):
+          x_wall = ((self.ori_wall_pos[:,0]+self.options.box_width/2) /(self.options.box_width) * res)[:,None]
+          y_wall = ((self.ori_wall_pos[:,1]+self.options.box_width/2) /(self.options.box_width) * res)[:,None]
+          self.res_wall_pos = (np.concatenate((x_wall,y_wall),axis=1)).astype(int)
+          return self.res_wall_pos
 
     def maze_randomwalk(self,steps: int,
                     random_seed: int,
