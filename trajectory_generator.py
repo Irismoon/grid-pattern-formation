@@ -201,7 +201,7 @@ class TrajectoryGenerator(object):
         #if around next node, change next node, and turn head direction
         #detect if near wall, if yes, change head direction
         #generate random head turn, update head direction and position
-
+        t_len = self.options.sequence_length
         #example one batch
         n_sample = self.options.sequence_length
         
@@ -214,7 +214,9 @@ class TrajectoryGenerator(object):
           head_direction = []
           head_angular_velocity = []
           linear_velocity = []
-          traj = self.maze_randomwalk(steps = 70, random_seed = np.random.randint(0,100000), mode = 'node')
+          seq_len = 0
+          traj = self.maze_randomwalk(steps = 40, random_seed = np.random.randint(0,100000), mode = 'node')
+          
           for i,node in enumerate(traj[0:-1]):
               if node in self.leaf_node:
                 current_node_pos = self.node_pos[node,:] + self.node_shift[node]
@@ -254,6 +256,10 @@ class TrajectoryGenerator(object):
               tmp_pos[:,idx] = tmp_pos[:,idx] + randn_drift
               position = position+tmp_pos.tolist()
 
+              seq_len += len(tmp_pos)
+              if seq_len>(t_len+2):
+                break
+
           position = np.array(position)
           tmp_vel = np.diff(position,n=1,axis=0)
           head_direction = np.zeros((position.shape[0],1))
@@ -272,7 +278,7 @@ class TrajectoryGenerator(object):
           batch_head_angular_velocity.append(head_angular_velocity)
           batch_head_direction.append(head_direction)
 
-        t_len = self.options.sequence_length
+        
   
 
         batch_linear_velocity = self.shrink_and_expand(batch_linear_velocity,t_len+2)

@@ -70,7 +70,7 @@ class Trainer(object):
             n_steps: Number of training steps
             save: If true, save a checkpoint after each epoch.
         '''
-        wandb.watch(self.model,log='all',log_freq=100)
+        #wandb.watch(self.model,log='all',log_freq=100)
         print('watching training...')
 
         # Construct generator
