@@ -96,7 +96,7 @@ class Trainer(object):
             #Log error rate to progress bar
             # tbar.set_description('Error = ' + str(np.int(100*err)) + 'cm')
 
-            if save and t%1000==0:
+            if save and t%2000==0:
                 print('Step {}/{}. Loss: {}. Err: {}cm'.format(
                     t,n_steps,np.round(loss,2),np.round(100*err,2)))
                 # Save checkpoint
@@ -107,5 +107,5 @@ class Trainer(object):
 
                 # Save a picture of rate maps
                 save_ratemaps(self.model, self.trajectory_generator,
-                 self.options, step=t)
+                 self.options, step=t, res=50)
             
