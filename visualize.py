@@ -153,3 +153,31 @@ def save_autocorr(sess, model, save_name, trajectory_generator, step, flags):
     out = utils.get_scores_and_plot(
                 latest_epoch_scorer, res['pos_xy'], res['bottleneck'],
                 imdir, filename)
+def plot_simulated_traj(options,trajectory_generator,place_cells,model):
+  inputs, pc_outputs, pos = trajectory_generator.get_test_batch()
+  pos = pos.cpu()
+  pred_pos = place_cells.get_nearest_cell_pos(model.predict(inputs)).cpu()
+  us = place_cells.us.cpu()
+
+  fig = plt.figure(figsize=(5,5))
+  ax = fig.add_subplot(111)
+  for i in range(10):
+      plt.plot(pos[:,i,0], pos[:,i,1], c='black', label='True position', linewidth=2)
+      plt.plot(pred_pos[:,i,0
+                        ], pred_pos[:,i,1], '.-',
+              c='C1', label='Decoded position')
+      if i==0:
+          plt.legend()
+  plt.scatter(us[:,0], us[:,1], s=20, alpha=0.5, c='lightgrey')
+  for axis in ['top','bottom','left','right']:
+      ax.spines[axis].set_linewidth(3)
+  plt.xticks([])
+  plt.yticks([])
+  plt.xlim([-options.box_width/2,options.box_width/2])
+  plt.ylim([-options.box_height/2,options.box_height/2]);
+  #plt.show()
+  pred_pos = pred_pos.detach().numpy()
+  pos = pos.detach().numpy()
+  loc_error = (np.sum((pred_pos - pos)**2,axis=2)).mean()
+  print(f'The predicted position error:{loc_error}')
+  #plt.savefig(trainer.ckpt_dir+'/sim_traj_decode.pdf')

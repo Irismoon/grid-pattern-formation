@@ -71,7 +71,7 @@ class TrajectoryGenerator(object):
       Returns:
         List[nodes]
       """
-      
+  
       Traj = traj_utils.MakeRandomWalk(self.maze,
                             n = steps,
                             rs = random_seed)
@@ -213,8 +213,8 @@ class TrajectoryGenerator(object):
         n_sample = self.options.sequence_length
         
         n_cell = t_len*linear_speed*batch_size/self.cell_len
-        traj = self.maze_randomwalk(steps=n_cell,random_seed=np.random.randint(0,100000),mode='node')
-        
+        rs=np.random.randint(0,100000)
+        traj = self.maze_randomwalk(steps=n_cell,random_seed=rs,mode='node')
         traj_pos = self.shift_node_pos[traj,:]
         diff_pos = np.diff(traj_pos,1,axis=0)
         n_diff_cell = (np.sum(np.abs(diff_pos),axis=1)/self.cell_len+0.00001).astype(int)
@@ -428,4 +428,4 @@ class TrajectoryGenerator(object):
 
         inputs = (v.cuda(), init_actv)
         
-        return (inputs, pos, place_outputs)
+        return (inputs, place_outputs, pos)
