@@ -56,9 +56,26 @@ class TrajectoryGenerator(object):
 
 
     def get_wall_pos(self,res):
-          x_wall = ((self.ori_wall_pos[:,0]+self.options.box_width/2) /(self.options.box_width) * res)[:,None]
-          y_wall = ((self.ori_wall_pos[:,1]+self.options.box_width/2) /(self.options.box_width) * res)[:,None]
-          self.res_wall_pos = (np.concatenate((x_wall,y_wall),axis=1)).astype(int)
+          if self.options.traj_type!='hairmaze':
+            x_wall = ((self.ori_wall_pos[:,0]+self.options.box_width/2) /(self.options.box_width) * res)[:,None]
+            y_wall = ((self.ori_wall_pos[:,1]+self.options.box_width/2) /(self.options.box_width) * res)[:,None]
+            self.res_wall_pos = (np.concatenate((x_wall,y_wall),axis=1)).astype(int)
+          else:
+            n_seg = 10
+            corridor_width = self.options.box_width/n_seg
+            odd_up_node_pos = np.hstack((np.arange(-self.options.box_width/2+corridor_width,self.options.box_width/2,2*corridor_width)[:,None],
+                      (np.ones(5)*(self.options.box_height/2-corridor_width))[:,None]))
+            odd_bottom_node_pos = np.hstack((np.arange(-self.options.box_width/2+corridor_width,self.options.box_width/2,2*corridor_width)[:,None],
+                      (np.ones(5)*(-self.options.box_height/2))[:,None]))
+            even_up_node_pos = np.hstack((np.arange(-self.options.box_width/2+corridor_width*2,self.options.box_width/2,2*corridor_width)[:,None],
+                      (np.ones(4)*self.options.box_height/2)[:,None]))
+            even_bottom_node_pos = np.hstack((np.arange(-self.options.box_width/2+corridor_width*2,self.options.box_width/2,2*corridor_width)[:,None],
+                      (np.ones(4)*(-self.options.box_height/2+corridor_width))[:,None]))
+            odd_pos = np.linspace(odd_up_node_pos,odd_bottom_node_pos,axis=0)#t x num_wall  x 2
+            even_pos = np.linspace(even_up_node_pos,even_bottom_node_pos,axis=0)
+            wall_pos = np.concatenate((np.reshape(odd_pos,(-1,2),order='F'),np.reshape(even_pos,(-1,2),order='F')),axis=0)
+            self.res_wall_pos = ((wall_pos+self.options.box_width/2)/self.options.box_width*res).astype(int)
+
           return self.res_wall_pos
 
     def maze_randomwalk(self,steps: int,
@@ -132,6 +149,8 @@ class TrajectoryGenerator(object):
           traj = self.maze_env_open_walk(box_width,box_height,batch_size)
         if (self.options.traj_type == 'open_env'):
           traj = self.open_env_walk(box_width,box_height,batch_size)
+        if (self.options.traj_type == 'hairmaze'):
+          traj = self.hairmaze_walk(batch_size)
         return traj
 
     def open_env_walk(self, box_width, box_height, batch_size):
@@ -275,7 +294,68 @@ class TrajectoryGenerator(object):
         traj['target_x'] = position[2:,:,0].T
         traj['target_y'] = position[2:,:,1].T
         return traj
-     
+    def hairmaze_walk(self,batch_size):
+        n_seg = 10
+        n_step = 10
+        corridor_width = self.options.box_width/n_seg
+        corridor_len = self.options.box_height-corridor_width
+        up_node_pos = np.hstack((np.arange(-self.options.box_width/2+corridor_width/2,self.options.box_width/2,corridor_width)[:,None],
+                      (np.ones(n_seg)*self.options.box_height/2-corridor_width/2)[:,None]))
+        bottom_node_pos = np.hstack((np.arange(-self.options.box_width/2+corridor_width/2,self.options.box_width/2,corridor_width)[:,None],
+                      -(np.ones(n_seg)*self.options.box_height/2-corridor_width/2)[:,None]))
+        odd_vtraj = np.linspace(bottom_node_pos[0::2,:],up_node_pos[0::2,:],int(n_step),axis=0)
+        even_vtraj = np.linspace(up_node_pos[1::2,:],bottom_node_pos[1::2,:],int(n_step),axis=0)#t x segment x 2
+        odd_htraj = np.linspace(up_node_pos[0::2],up_node_pos[1::2],int(np.ceil(corridor_width/corridor_len*n_step)),axis=0)#t x segment x 2
+        even_htraj = np.linspace(bottom_node_pos[1:-1:2],bottom_node_pos[2::2],int(np.ceil(corridor_width/corridor_len*n_step)),axis=0) 
+        #odd_vtraj[0]->odd_htraj[0]->even_vtraj[0]->even_htraj[0]
+        s1,s2,s3 = odd_vtraj.shape[0],odd_vtraj.shape[1],odd_vtraj.shape[2]
+        #import pdb;pdb.set_trace()
+        batch_odd_vtraj = np.repeat(odd_vtraj[:,:,:,None],batch_size,axis=3)
+        batch_odd_vtraj[:,:,0,:] += (corridor_width/2*np.random.rand(s1,s2,batch_size)-corridor_width/4)
+        batch_even_vtraj = np.repeat(even_vtraj[:,:,:,None],batch_size,axis=3)
+        batch_even_vtraj[:,:,0,:] += (corridor_width/2*np.random.rand(s1,s2,batch_size)-corridor_width/4)
+        s1,s2,s3 = odd_htraj.shape[0],odd_htraj.shape[1],odd_htraj.shape[2]
+        batch_odd_htraj = np.repeat(odd_htraj[:,:,:,None],batch_size,axis=3)
+        batch_odd_htraj[:,:,1,:] += (corridor_width/2*np.random.rand(s1,s2,batch_size)-corridor_width/4)
+        s1,s2,s3 = even_htraj.shape[0],even_htraj.shape[1],even_htraj.shape[2]
+        batch_even_htraj = np.repeat(even_htraj[:,:,:,None],batch_size,axis=3)
+        batch_even_htraj[:,:,1,:] += (corridor_width/2*np.random.rand(s1,s2,batch_size)-corridor_width/4)
+
+        for i in range(5):
+          if i==0:
+            batch_pos = np.concatenate((batch_odd_vtraj[:,i,:,:],batch_odd_htraj[:,i,:,:],batch_even_vtraj[:,i,:,:],batch_even_htraj[:,i,:,:]),axis=0)
+          elif i<4:
+            batch_pos = np.concatenate((batch_pos,batch_odd_vtraj[:,i,:,:],batch_odd_htraj[:,i,:,:],batch_even_vtraj[:,i,:,:],batch_even_htraj[:,i,:,:]),axis=0)
+          else:
+            batch_pos = np.concatenate((batch_pos,batch_odd_vtraj[:,i,:,:],batch_odd_htraj[:,i,:,:],batch_even_vtraj[:,i,:,:]),axis=0)
+        position = np.moveaxis(batch_pos,[1,2],[2,1])#t x batch x (x,y)
+        tmp_vel = np.diff(position,n=1,axis=0)
+        head_direction = np.zeros((position.shape[0],position.shape[1]))
+        head_direction[1:,:] = np.arctan2(tmp_vel[:,:,1],tmp_vel[:,:,0])
+        
+        head_angular_velocity = np.zeros_like(head_direction)
+        head_angular_velocity[1:,:] = np.diff(head_direction,n=1,axis=0)
+
+        linear_velocity = np.zeros_like(head_direction)
+        linear_velocity[1:,:] = np.linalg.norm(tmp_vel,axis=2)
+         
+        traj = {}
+        # Input variables
+        traj['init_hd'] = head_direction[0,:,None]
+        traj['init_x'] = position[1,:,0,None]
+        traj['init_y'] = position[1,:,1,None]
+
+        traj['ego_v'] = np.squeeze(linear_velocity[2:,:]).T
+        ang_v = head_angular_velocity
+        traj['phi_x'], traj['phi_y'] = np.cos(ang_v)[:-1,:].T, np.sin(ang_v)[:-1,:].T
+
+        # Target variables
+        traj['target_hd'] = np.squeeze(head_direction[2:,:]).T
+        traj['target_x'] = position[2:,:,0].T
+        traj['target_y'] = position[2:,:,1].T
+        return traj
+        
+        
     def maze_env_walk(self,box_width,box_height,batch_size):
       #print('hello world!')
         samples = self.options.sequence_length
