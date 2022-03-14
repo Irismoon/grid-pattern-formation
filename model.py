@@ -34,8 +34,9 @@ class RNN(torch.nn.Module):
         init_state = self.encoder(p0)[None]
         #print('v shape {}, p0 shape {}'.format(v.shape,p0.shape))
         #print('init stat nan # {}, v nan # {}, p0 nan # {}'.format(init_state.isnan().sum(),v.cpu().isnan().sum(),p0.isnan().sum()))
+        #print('encoding computed')
         g,_ = self.RNN(v, init_state)
-
+        #print('RNN computed')
         return g
     
 
@@ -50,7 +51,7 @@ class RNN(torch.nn.Module):
                 [batch_size, sequence_length, Np].
         '''
         place_preds = self.decoder(self.g(inputs))
-        
+        #print('decoding computed')
         return place_preds
 
 

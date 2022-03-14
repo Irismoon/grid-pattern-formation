@@ -3,8 +3,8 @@ import torch
 import numpy as np
 from matplotlib import pyplot as plt
 from subprocess import call
-import wandb
-call(["wandb","login"])
+#import wandb
+#call(["wandb","login"])
 
 from visualize import save_ratemaps
 import os
@@ -70,7 +70,7 @@ class Trainer(object):
             n_steps: Number of training steps
             save: If true, save a checkpoint after each epoch.
         '''
-        wandb.watch(self.model,log='all',log_freq=100)
+        #wandb.watch(self.model,log='all',log_freq=100)
         print('watching training...')
 
         # Construct generator
@@ -83,6 +83,7 @@ class Trainer(object):
             loss, err = self.train_step(inputs, pc_outputs, pos)
             self.loss.append(loss)
             self.err.append(err)
+            
             # if t%(0.01*n_steps)==0:            
             #   print('step {}. Loss: {}. Err: {}cm'.format(t,np.round(loss,2),np.round(100*err,2)))
             #   
@@ -95,9 +96,10 @@ class Trainer(object):
 
             #Log error rate to progress bar
             # tbar.set_description('Error = ' + str(np.int(100*err)) + 'cm')
-
-            if save and t%2000==0:
-                wandb.log({"epoch":t,'loss':loss,'error':err},step=t)
+           # if t%100==0:
+          #      wandb.log({'loss':loss,'error':err},step=t)
+            if save and t%(n_steps*0.05)==0:
+                
                 print('Step {}/{}. Loss: {}. Err: {}cm'.format(
                     t,n_steps,np.round(loss,2),np.round(100*err,2)))
                 # Save checkpoint
