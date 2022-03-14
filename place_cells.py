@@ -35,7 +35,7 @@ class PlaceCells(object):
             outputs: Place cell activations with shape [batch_size, sequence_length, Np].
         '''
         d = torch.abs(pos[:, :, None, :] - self.us[None, None, ...]).float()
-
+        #batch x sequence x place cell x (x,y)
         if self.is_periodic:
             dx = d[:,:,:,0]
             dy = d[:,:,:,1]
@@ -43,7 +43,7 @@ class PlaceCells(object):
             dy = torch.minimum(dy, self.box_height - dy)
             d = torch.stack([dx,dy], axis=-1)
 
-        norm2 = (d**2).sum(-1)
+        norm2 = (d**2).sum(-1)#batch x sequence x place cell
 
         # Normalize place cell outputs with prefactor alpha=1/2/np.pi/self.sigma**2,
         # or, simply normalize with softmax, which yields same normalization on 
@@ -61,7 +61,21 @@ class PlaceCells(object):
             outputs /= outputs.sum(-1, keepdims=True)
         return outputs
 
-    
+    def plot_pc_profile(self,  res=32):
+        ''' Interpolate place cell outputs onto a grid'''
+        coordsx = np.linspace(-self.box_width/2, self.box_width/2, res)
+        coordsy = np.linspace(-self.box_height/2, self.box_height/2, res)
+        grid_x, grid_y = np.meshgrid(coordsx, coordsy)
+        grid = np.stack([grid_x.ravel(), grid_y.ravel()]).T
+
+        pc_activation = self.get_activation(torch.tensor(grid.reshape((1,-1,2),order='F')).cuda())#1 x all_position x 512
+        #pc = np.zeros([res, res])
+        #gridval = scipy.interpolate.griddata(self.us.cpu(), pc_outputs[i], grid)#interpolate pc activations from us to grid, like when you know some points along a line, you interpolate it to get the whole line
+        #pc[i] = gridval.reshape([res, res])
+        print(pc_activation.shape)
+        pc = pc_activation[:,:,30].reshape((res,res))
+        
+        return pc.cpu()
     def get_nearest_cell_pos(self, activation, k=3):
         '''
         Decode position using centers of k maximally active place cells.
@@ -91,7 +105,7 @@ class PlaceCells(object):
         T = pc_outputs.shape[0] #T vs transpose? What is T? (dim's?)
         pc = np.zeros([T, res, res])
         for i in range(len(pc_outputs)):
-            gridval = scipy.interpolate.griddata(self.us.cpu(), pc_outputs[i], grid)
+            gridval = scipy.interpolate.griddata(self.us.cpu(), pc_outputs[i], grid)#interpolate pc activations from us to grid, like when you know some points along a line, you interpolate it to get the whole line
             pc[i] = gridval.reshape([res, res])
         
         return pc
